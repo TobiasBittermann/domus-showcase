@@ -14,6 +14,7 @@ def test_token_info(client, db, household):
     assert r.status_code == 200
     assert r.json()["purpose"] == "invite"
     assert r.json()["household_name"] == "Test household"
+    assert r.json()["member_name"] == "Tobi"
     assert client.get("/api/auth/tokens/unbekannt").status_code == 404
 
 
@@ -22,8 +23,13 @@ def test_register_via_invite_logs_in(client, db, household):
 
     me = client.get("/api/auth/me").json()
     assert me["username"] == "tobi"
-    assert me["role"] == "admin"
-    assert me["household"]["name"] == "Test household"
+
+    # The account is linked to the invited member
+    h = client.get("/api/household").json()
+    assert h["name"] == "Test household"
+    [member] = h["members"]
+    assert member["id"] == h["me_id"]
+    assert member == {**member, "display_name": "Tobi", "role": "admin", "has_account": True}
 
 
 def test_invite_is_single_use(client, db, household):
@@ -40,7 +46,11 @@ def test_username_must_be_unique(client, db, household):
     register(client, invite_token(db, household))
     r = client.post(
         "/api/auth/register/options",
-        json={"token": invite_token(db, household), "username": "tobi", "display_name": "X"},
+        json={
+            "token": invite_token(db, household, "Anna"),
+            "username": "tobi",
+            "display_name": "X",
+        },
     )
     assert r.status_code == 409
 

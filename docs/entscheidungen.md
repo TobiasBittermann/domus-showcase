@@ -53,6 +53,60 @@ führt zu Compilerfehlern statt zu Laufzeitfehlern.
 **Warum:** Unterschiede zwischen SQLite und PostgreSQL (Enums, Constraints, Zeitzonen) würden
 Fehler verdecken. Die Testdatenbank läuft im selben Docker-Compose-Setup.
 
+## Konto und Mitglied getrennt
+
+**Entscheidung:** Personen im Haushalt (`HouseholdMember`) und Login-Konten (`User`) sind eigene
+Tabellen; ein Konto wird per Einladungslink mit einem Mitglied verknüpft.
+
+**Warum:** Ein Haushalt soll sofort nutzbar sein, auch wenn nicht alle ein Konto anlegen
+(z. B. Kinder). Ausgaben und Fixkosten verweisen auf Mitglieder, nicht auf Konten. Später kann ein
+Konto mehreren Haushalten angehören, ohne das Datenmodell umzubauen.
+
+## Anmeldung fertig gebaut, aber per Schalter abgeschaltet
+
+**Entscheidung:** Die Passkey-Anmeldung ist vollständig implementiert und getestet, wird aber erst
+mit `AUTH_ENABLED=true` erzwungen. Bis dahin handelt jede Anfrage als ältestes Mitglied.
+
+**Warum:** Passkeys brauchen HTTPS mit fester Domain – das gibt es erst im Betrieb auf dem Pi.
+Die Fachfunktionen sollten aber schon jetzt im Alltag erprobt werden. Weil die gesamte Fachlogik
+nur das „aktuelle Mitglied“ kennt (eine FastAPI-Dependency), ändert das Umlegen des Schalters
+nichts an Services oder Tests der Fachbereiche.
+
+## Geldbeträge als ganze Cent
+
+**Entscheidung:** Alle Beträge sind `int` in Cent – in der Datenbank, in der API und im Frontend.
+Formatiert wird erst bei der Anzeige.
+
+**Warum:** Gleitkommazahlen können Beträge wie 0,10 € nicht exakt darstellen. Mit ganzen Cent
+geht beim Aufteilen nichts verloren: Restcents werden gezielt verteilt
+(`split_evenly(701, 2) == [351, 350]`).
+
+## Salden berechnen statt speichern
+
+**Entscheidung:** Schulden, Salden und Fixkosten-Fälligkeiten werden bei jeder Abfrage aus den
+Buchungen berechnet. Gespeichert werden nur Fakten: Ausgaben, Ausgleichszahlungen, bestätigte
+Überweisungen.
+
+**Warum:** Gespeicherte Summen können durch Fehler oder spätere Korrekturen auseinanderlaufen;
+berechnete nicht. Für die Datenmenge eines Haushalts ist das Rechnen bei jeder Abfrage
+problemlos schnell.
+
+## Historie bei Preisänderungen erhalten
+
+**Entscheidung:** Eine bestätigte Fixkosten-Zahlung speichert den Betrag zum Zeitpunkt der
+Bestätigung.
+
+**Warum:** Ändert sich z. B. der Stromabschlag, gilt der neue Betrag für alle offenen Monate,
+während bereits bezahlte Monate unverändert bleiben – genau wie auf dem Kontoauszug.
+
+## Eigene Diagramme statt Chart-Bibliothek
+
+**Entscheidung:** Die Ringdiagramme der Startseite sind eine eigene, kleine SVG-Komponente.
+
+**Warum:** Für zwei Diagrammtypen lohnt keine große Abhängigkeit (Bundle-Größe, Lizenzprüfung).
+Eine eigene Komponente gibt volle Kontrolle über Barrierefreiheit (Legende als Tabelle,
+Textalternative), konsistente Farben pro Geschäft und den Dunkelmodus.
+
 ## Selbst gehostet auf dem Raspberry Pi
 
 **Entscheidung:** Betrieb per Docker Compose auf eigener Hardware.

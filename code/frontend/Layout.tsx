@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router'
 
+import { HouseholdGate } from './HouseholdGate'
+
 const navItems = [
   { to: '/', label: 'Start', icon: '🏠', end: true },
   { to: '/expenses', label: 'Ausgaben', icon: '💶' },
+  { to: '/fixed-costs', label: 'Fixkosten', icon: '📅' },
+  { to: '/stores', label: 'Geschäfte', icon: '🏪' },
   { to: '/shopping', label: 'Einkaufsliste', icon: '🛒' },
   { to: '/chores', label: 'Putzplan', icon: '🧹' },
+  { to: '/household', label: 'Haushalt', icon: '👥' },
 ]
 
 /**
@@ -61,7 +66,9 @@ export function Layout() {
       </aside>
 
       <main className="app-main">
-        <Outlet />
+        <HouseholdGate>
+          <Outlet />
+        </HouseholdGate>
       </main>
     </div>
   )

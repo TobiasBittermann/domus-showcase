@@ -33,9 +33,8 @@ from app.models import (
     AuthToken,
     AuthTokenPurpose,
     ChallengePurpose,
-    Household,
+    HouseholdMember,
     Passkey,
-    Role,
     Session,
     User,
     WebAuthnChallenge,
@@ -85,40 +84,35 @@ def delete_session(db: DBSession, token: str) -> None:
 # --- Invitation and recovery tokens -------------------------------------------
 
 
-def create_household(db: DBSession, name: str) -> Household:
-    household = Household(name=name)
-    db.add(household)
-    db.commit()
-    return household
+class MemberAlreadyLinkedError(ValueError):
+    pass
 
 
 def create_invite(
-    db: DBSession, household: Household, role: Role, created_by: User | None = None
+    db: DBSession, member: HouseholdMember, created_by: HouseholdMember | None = None
 ) -> tuple[str, AuthToken]:
+    """Invitation link with which a person registers and is linked to `member`."""
+    if member.user_id is not None:
+        raise MemberAlreadyLinkedError("This member already has an account")
     lifetime = timedelta(hours=get_settings().invite_lifetime_hours)
     return _create_auth_token(
         db,
         AuthToken(
             purpose=AuthTokenPurpose.INVITE,
-            household_id=household.id,
-            role=role,
+            member_id=member.id,
             created_by_id=created_by.id if created_by else None,
             expires_at=utcnow() + lifetime,
         ),
     )
 
 
-def create_recovery(
-    db: DBSession, user: User, created_by: User | None = None
-) -> tuple[str, AuthToken]:
+def create_recovery(db: DBSession, user: User) -> tuple[str, AuthToken]:
     lifetime = timedelta(hours=get_settings().recovery_lifetime_hours)
     return _create_auth_token(
         db,
         AuthToken(
             purpose=AuthTokenPurpose.RECOVERY,
-            household_id=user.household_id,
             user_id=user.id,
-            created_by_id=created_by.id if created_by else None,
             expires_at=utcnow() + lifetime,
         ),
     )
@@ -139,9 +133,16 @@ def auth_token_url(token: str, auth_token: AuthToken) -> str:
 
 def get_valid_auth_token(db: DBSession, token: str) -> AuthToken:
     auth_token = db.scalar(select(AuthToken).where(AuthToken.token_hash == hash_token(token)))
-    if auth_token is None or auth_token.used_at is not None or auth_token.expires_at <= utcnow():
+    if not _is_usable(auth_token):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Link is invalid or has expired")
     return auth_token
+
+
+def _is_usable(auth_token: AuthToken | None) -> bool:
+    if auth_token is None or auth_token.used_at is not None or auth_token.expires_at <= utcnow():
+        return False
+    # An invitation is void once its member has been linked to an account otherwise
+    return not (auth_token.member is not None and auth_token.member.user_id is not None)
 
 
 # --- WebAuthn: Challenges -----------------------------------------------------
@@ -262,11 +263,7 @@ def finish_registration(
     auth_token: AuthToken | None = None
     if challenge.auth_token_id is not None:
         auth_token = db.get(AuthToken, challenge.auth_token_id)
-        if (
-            auth_token is None
-            or auth_token.used_at is not None
-            or auth_token.expires_at <= utcnow()
-        ):
+        if not _is_usable(auth_token):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Link is invalid or has expired")
     elif current_user is None or challenge.user_id != current_user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Challenge belongs to a different user")
@@ -287,17 +284,16 @@ def finish_registration(
         raise HTTPException(status.HTTP_409_CONFLICT, "This passkey is already registered")
 
     if challenge.pending_user is not None:
-        assert auth_token is not None and auth_token.role is not None
+        assert auth_token is not None and auth_token.member is not None
         pending = challenge.pending_user
         _ensure_username_free(db, pending["username"])
         user = User(
-            household_id=auth_token.household_id,
             username=pending["username"],
             display_name=pending["display_name"],
-            role=auth_token.role,
             webauthn_user_id=base64url_to_bytes(pending["webauthn_user_id"]),
         )
         db.add(user)
+        auth_token.member.user = user
     else:
         user = db.get_one(User, challenge.user_id)
 

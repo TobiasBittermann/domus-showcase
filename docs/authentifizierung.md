@@ -4,6 +4,11 @@ Domus verwendet **ausschließlich Passkeys** (WebAuthn/FIDO2). Es gibt keine Pas
 vergessen, wiederverwendet oder gestohlen werden können. Auf dem Handy reicht Fingerabdruck oder
 Gesichtserkennung.
 
+> **Stand:** Backend und Tests sind fertig. Die Anmeldung ist vorerst per Schalter
+> (`AUTH_ENABLED=false`) abgeschaltet, bis Domus mit HTTPS und fester Domain auf dem Raspberry Pi
+> läuft – Passkeys sind an die Domain gebunden. Bis dahin gilt jede Anfrage als ältestes
+> Mitglied des Haushalts; der Login im Frontend folgt als Nächstes.
+
 ## Grundprinzip
 
 - Der **private Schlüssel** verlässt nie das Gerät des Nutzers.
@@ -12,9 +17,13 @@ Gesichtserkennung.
 
 ## Neues Mitglied per Einladung
 
-Registrieren kann sich nur, wer einen Einladungslink hat. Den ersten Admin-Link erzeugt der
-Server-Betreiber per CLI (`domus create-household "Familie Muster"`), weitere Links erstellen
-Admins in der App.
+Registrieren kann sich nur, wer einen Einladungslink hat. Eine Einladung gehört immer zu einem
+bestehenden **Mitglied** des Haushalts: Wer sich damit registriert, legt ein Konto an, das mit
+genau diesem Mitglied verknüpft wird – alle bisherigen Ausgaben und Fixkosten der Person gehören
+dann zu ihrem Konto. Den Link für das erste Mitglied erzeugt der Server-Betreiber per CLI
+(`domus create-household "Familie Muster" "Anna"`), weitere erstellen Mitglieder über
+`POST /api/household/members/{id}/invite`. Ist das Mitglied bereits verknüpft, wird jede weitere
+Einladung für es ungültig.
 
 ```mermaid
 sequenceDiagram
@@ -32,7 +41,7 @@ sequenceDiagram
     B->>A: POST /api/auth/register/verify {challenge_id, credential}
     A->>DB: Challenge laden und sofort löschen (einmalig)
     A->>A: Attestation prüfen (Challenge, Origin, RP-ID, User Verification)
-    A->>DB: Benutzer + Passkey anlegen, Einladung als benutzt markieren
+    A->>DB: Konto + Passkey anlegen, mit Mitglied verknüpfen, Einladung als benutzt markieren
     A-->>B: Session-Cookie (HttpOnly, SameSite=Lax)
 ```
 
@@ -77,7 +86,7 @@ Ohne Passwort braucht es einen sicheren Notfallweg, falls jemand alle Geräte ve
 | Origin- und RP-ID-Prüfung       | Antworten von fremden Seiten werden abgelehnt (per Test abgesichert).                                                                                      |
 | Eigenes User Handle             | WebAuthn erhält eine zufällige 64-Byte-ID statt der internen Benutzer-ID.                                                                                  |
 | Sichere Cookies                 | `HttpOnly`, `SameSite=Lax`, im Betrieb `Secure`; gleitender Ablauf nach 30 Tagen Inaktivität.                                                              |
-| Rollen                          | Nur Admins dürfen Einladungen erzeugen.                                                                                                                    |
+| Haushaltsgrenzen                | Einladungen nur für Mitglieder des eigenen Haushalts; ein Link verfällt, sobald das Mitglied verknüpft ist (per Test abgesichert).                         |
 
 ## Testbarkeit
 
@@ -86,5 +95,6 @@ enthält dafür einen kleinen [Software-Authenticator](../code/backend/tests/sof
 echte, kryptografisch signierte WebAuthn-Antworten (ES256, Attestation `none`) erzeugt. Damit
 laufen alle Abläufe als schnelle, automatisierte Tests gegen eine echte PostgreSQL-Datenbank:
 Registrierung, Anmeldung, Abmeldung, wiederverwendete Challenges, falsche Origin, unbekannte
-Passkeys, Passkeys hinzufügen und löschen, Wiederherstellung und Einladungen durch Admins.
+Passkeys, Passkeys hinzufügen und löschen, Wiederherstellung sowie Einladung und Verknüpfung
+von Mitgliedern.
 → [Tests](../code/backend/tests/test_auth.py)
